@@ -488,18 +488,10 @@ class SpacedSampler:
             color_fix_type: str = "none"
     ) -> torch.Tensor:
         def _sliding_windows(h: int, w: int, tile_size: int, tile_stride: int) -> Tuple[int, int, int, int]:
-            hi_list = list(range(0, h - tile_size + 1, tile_stride))
-            if (h - tile_size) % tile_stride != 0:
-                hi_list.append(h - tile_size)
-
-            wi_list = list(range(0, w - tile_size + 1, tile_stride))
-            if (w - tile_size) % tile_stride != 0:
-                wi_list.append(w - tile_size)
-
             coords = []
-            for hi in hi_list:
-                for wi in wi_list:
-                    coords.append((hi, hi + tile_size, wi, wi + tile_size))
+            for y in range(0, max(h - tile_size + tile_stride, 1), tile_stride):
+                for x in range(0, max(w - tile_size + tile_stride, 1), tile_stride):
+                    coords.append((y, y + tile_size, x, x + tile_size))
             return coords
 
         def gaussian_weights(tile_width: int, tile_height: int, nbatches: int) -> torch.Tensor:
@@ -553,7 +545,7 @@ class SpacedSampler:
         # predict noise for each tile
         tiles_iterator = tqdm(_sliding_windows(h, w, tile_size // 8, tile_stride // 8))
         for hi, hi_end, wi, wi_end in tiles_iterator:
-            tiles_iterator.set_description(f"Process tile with location ({hi} {hi_end}) ({wi} {wi_end})")
+            tiles_iterator.set_description(f"Process tile with location ({hi * 8} {hi_end * 8}) ({wi * 8} {wi_end * 8})")
             # noisy latent of this diffusion process (tile) at this step
             tile_img = img[:, :, hi:hi_end, wi:wi_end]
             # prepare condition for this tile
@@ -570,9 +562,11 @@ class SpacedSampler:
             # predict noise for this tile
             tile_noise = self.predict_noise(tile_img, ts, tile_cond, cfg_scale, tile_uncond)
 
+            weight_slice = tile_weights[:, :, :min(tile_weights.size(-2), h - hi), :min(tile_weights.size(-1), w - wi)]
+
             # accumulate noise
-            noise_buffer[:, :, hi:hi_end, wi:wi_end] += tile_noise * tile_weights
-            count[:, :, hi:hi_end, wi:wi_end] += tile_weights
+            noise_buffer[:, :, hi:hi_end, wi:wi_end] += tile_noise * weight_slice
+            count[:, :, hi:hi_end, wi:wi_end] += weight_slice
 
         # fuse by tile_weights on noise (score)
         noise_buffer /= count
@@ -600,7 +594,7 @@ class SpacedSampler:
             # predict noise for each tile
             tiles_iterator = tqdm(_sliding_windows(h, w, tile_size // 8, tile_stride // 8))
             for hi, hi_end, wi, wi_end in tiles_iterator:
-                tiles_iterator.set_description(f"Process tile with location ({hi} {hi_end}) ({wi} {wi_end})")
+                tiles_iterator.set_description(f"Process tile with location ({hi * 8} {hi_end * 8}) ({wi * 8} {wi_end * 8})")
                 # noisy latent of this diffusion process (tile) at this step
                 tile_img = img[:, :, hi:hi_end, wi:wi_end]
                 # prepare condition for this tile
@@ -616,9 +610,11 @@ class SpacedSampler:
                 # predict noise for this tile
                 tile_noise = self.predict_noise(tile_img, ts, tile_cond, cfg_scale, tile_uncond)
 
+                weight_slice = tile_weights[:, :, :min(tile_weights.size(-2), h - hi), :min(tile_weights.size(-1), w - wi)]
+
                 # accumulate noise
-                noise_buffer[:, :, hi:hi_end, wi:wi_end] += tile_noise * tile_weights
-                count[:, :, hi:hi_end, wi:wi_end] += tile_weights
+                noise_buffer[:, :, hi:hi_end, wi:wi_end] += tile_noise * weight_slice
+                count[:, :, hi:hi_end, wi:wi_end] += weight_slice
             pbar.update(1)
             # average on noise (score)
             noise_buffer /= count
@@ -671,18 +667,10 @@ class SpacedSampler:
             color_fix_type: str = "none"
     ) -> torch.Tensor:
         def _sliding_windows(h: int, w: int, tile_size: int, tile_stride: int) -> Tuple[int, int, int, int]:
-            hi_list = list(range(0, h - tile_size + 1, tile_stride))
-            if (h - tile_size) % tile_stride != 0:
-                hi_list.append(h - tile_size)
-
-            wi_list = list(range(0, w - tile_size + 1, tile_stride))
-            if (w - tile_size) % tile_stride != 0:
-                wi_list.append(w - tile_size)
-
             coords = []
-            for hi in hi_list:
-                for wi in wi_list:
-                    coords.append((hi, hi + tile_size, wi, wi + tile_size))
+            for y in range(0, max(h - tile_size + tile_stride, 1), tile_stride):
+                for x in range(0, max(w - tile_size + tile_stride, 1), tile_stride):
+                    coords.append((y, y + tile_size, x, x + tile_size))
             return coords
 
         # make sampling parameters (e.g. sigmas)
@@ -710,7 +698,7 @@ class SpacedSampler:
         # predict noise for each tile
         tiles_iterator = tqdm(_sliding_windows(h, w, tile_size // 8, tile_stride // 8))
         for hi, hi_end, wi, wi_end in tiles_iterator:
-            tiles_iterator.set_description(f"Process tile with location ({hi} {hi_end}) ({wi} {wi_end})")
+            tiles_iterator.set_description(f"Process tile with location ({hi * 8} {hi_end * 8}) ({wi * 8} {wi_end * 8})")
             # noisy latent of this diffusion process (tile) at this step
             tile_img = img[:, :, hi:hi_end, wi:wi_end]
             # prepare condition for this tile
@@ -756,7 +744,7 @@ class SpacedSampler:
             # predict noise for each tile
             tiles_iterator = tqdm(_sliding_windows(h, w, tile_size // 8, tile_stride // 8))
             for hi, hi_end, wi, wi_end in tiles_iterator:
-                tiles_iterator.set_description(f"Process tile with location ({hi} {hi_end}) ({wi} {wi_end})")
+                tiles_iterator.set_description(f"Process tile with location ({hi * 8} {hi_end * 8}) ({wi * 8} {wi_end * 8})")
                 # noisy latent of this diffusion process (tile) at this step
                 tile_img = img[:, :, hi:hi_end, wi:wi_end]
                 # prepare condition for this tile

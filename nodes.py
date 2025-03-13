@@ -12,6 +12,7 @@ from .utils.common import instantiate_from_config, load_state_dict
 import comfy.model_management as mm
 import comfy.utils
 import folder_paths
+import math
 from nodes import ImageScaleBy
 from nodes import ImageScale
 
@@ -37,10 +38,10 @@ class CCSR_Upscale:
             ], {
                "default": 'ccsr_tiled_mixdiff'
             }),
-            "tile_size": ("INT", {"default": 512, "min": 1, "max": 4096, "step": 1}),
-            "tile_stride": ("INT", {"default": 256, "min": 1, "max": 4096, "step": 1}),
-            "vae_tile_size_encode": ("INT", {"default": 1024, "min": 2, "max": 4096, "step": 8}),
-            "vae_tile_size_decode": ("INT", {"default": 1024, "min": 2, "max": 4096, "step": 8}),
+            "tile_size": ("INT", {"default": 512, "min": 64, "max": 4096, "step": 64}),
+            "tile_stride": ("INT", {"default": 256, "min": 64, "max": 4096, "step": 64}),
+            "vae_tile_size_encode": ("INT", {"default": 1024, "min": 8, "max": 4096, "step": 8}),
+            "vae_tile_size_decode": ("INT", {"default": 1024, "min": 8, "max": 4096, "step": 8}),
             "color_fix_type": (
             [   
                 'none',
@@ -83,9 +84,9 @@ class CCSR_Upscale:
         
         B, H, W, C = image.shape
 
-        # Calculate the new height and width, rounding down to the nearest multiple of 64.
-        new_height = H // 64 * 64
-        new_width = W // 64 * 64
+        # Calculate the new height and width, rounding up to the nearest multiple of 64.
+        new_height = math.ceil(H / 64) * 64
+        new_width = math.ceil(W / 64) * 64
 
         # Reorder to [B, C, H, W] before using interpolate.
         image = image.permute(0, 3, 1, 2).contiguous()
@@ -99,6 +100,9 @@ class CCSR_Upscale:
         height, width = resized_image.size(-2), resized_image.size(-1)
         shape = (1, 4, height // 8, width // 8)
         x_T = torch.randn(shape, device=model.device, dtype=torch.float32)
+
+        # ensure tile_stride <= tile_size
+        tile_stride = min(tile_stride, tile_size)
 
         out = []
         if B > 1:
@@ -143,10 +147,8 @@ class CCSR_Upscale:
                     print("Sampled image ", i, " out of ", B)
        
         original_height, original_width = H, W  
-        processed_height = samples.size(2)
-        target_width = int(processed_height * (original_width / original_height))
         out_stacked = torch.stack(out, dim=0).cpu().to(torch.float32).permute(0, 2, 3, 1)
-        resized_back_image, = ImageScale.upscale(self, out_stacked, "lanczos", target_width, processed_height, crop="disabled")
+        resized_back_image, = ImageScale.upscale(self, out_stacked, "lanczos", original_width, original_height, crop="disabled")
         
         if not keep_model_loaded:
             model.to(offload_device)           
