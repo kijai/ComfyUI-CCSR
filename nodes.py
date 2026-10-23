@@ -17,6 +17,18 @@ from nodes import ImageScale
 
 script_directory = os.path.dirname(os.path.abspath(__file__))
 
+def load_stage2_config():
+    config = OmegaConf.load(os.path.join(script_directory, "configs/model/ccsr_stage2.yaml"))
+    # ComfyUI doesn't register the pack under its folder name, so point the targets at the real package
+    def fix_targets(cfg):
+        for key, value in cfg.items():
+            if key == "target" and value.startswith("ComfyUI-CCSR."):
+                cfg[key] = __package__ + value[len("ComfyUI-CCSR"):]
+            elif OmegaConf.is_dict(value):
+                fix_targets(value)
+    fix_targets(config)
+    return config
+
 class CCSR_Upscale:
     upscale_methods = ["nearest-exact", "bilinear", "area", "bicubic", "lanczos"]
     @classmethod
@@ -169,12 +181,10 @@ class CCSR_Model_Select:
         device = mm.get_torch_device()
         offload_device = mm.unet_offload_device()
         ckpt_path = folder_paths.get_full_path("checkpoints", ckpt_name)
-        config_path = os.path.join(script_directory, "configs/model/ccsr_stage2.yaml")
         dtype = torch.float16 if mm.should_use_fp16() and not mm.is_device_mps(device) else torch.float32
         
         if not hasattr(self, "model") or self.model is None:
-            config = OmegaConf.load(config_path)
-            self.model = instantiate_from_config(config)
+            self.model = instantiate_from_config(load_stage2_config())
             
             load_state_dict(self.model, comfy.utils.load_torch_file(ckpt_path), strict=True)
             # reload preprocess model if specified
@@ -219,10 +229,7 @@ class DownloadAndLoadCCSRModel:
                             local_dir=model_path,
                             local_dir_use_symlinks=False)
             
-        config_path = os.path.join(script_directory, "configs/model/ccsr_stage2.yaml")
-        config = OmegaConf.load(config_path)
-
-        model = instantiate_from_config(config)
+        model = instantiate_from_config(load_stage2_config())
 
         sd = comfy.utils.load_torch_file(safetensors_path)
       
